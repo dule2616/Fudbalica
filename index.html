@@ -1,0 +1,649 @@
+<!doctype html>
+<html lang="sr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Fudbalski termin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800&family=Public+Sans:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: one column, scoreboard feel. Thick touchline rule under the title, tabs switch between standings, match log and admin-only forms. */
+:root {
+  --bg: #f1f4ec;
+  --surface: #fafbf6;
+  --fg: #18281f;
+  --muted: #5a6a60;
+  --line: #d3dccb;
+  --pitch: #1d5c3b;
+  --on-pitch: #f4f8f1;
+  --a: #b85a0a;
+  --on-a: #ffffff;
+  --b: #2a6fb0;
+  --on-b: #ffffff;
+  --win: #1c7a44;
+  --draw: #8a6d12;
+  --loss: #b3402e;
+  --font-display: "Big Shoulders Display", "Arial Narrow", Impact, sans-serif;
+  --font-body: "Public Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1612; --surface: #15211b; --fg: #e5ede6; --muted: #93a499; --line: #283a2f;
+    --pitch: #5fbf86; --on-pitch: #0c1a12; --a: #f0933f; --on-a: #1b1007; --b: #63a6e6; --on-b: #07131f;
+    --win: #5fbf86; --draw: #d3bd5a; --loss: #e67c68; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1612; --surface: #15211b; --fg: #e5ede6; --muted: #93a499; --line: #283a2f;
+  --pitch: #5fbf86; --on-pitch: #0c1a12; --a: #f0933f; --on-a: #1b1007; --b: #63a6e6; --on-b: #07131f;
+  --win: #5fbf86; --draw: #d3bd5a; --loss: #e67c68; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--fg);
+  font: 15px/1.5 var(--font-body);
+  padding-block: 20px 56px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 780px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+:focus-visible { outline: 2px solid var(--pitch); outline-offset: 2px; }
+
+.top { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.eyebrow { margin: 0 0 4px; font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+h1 { margin: 0; font: 800 clamp(38px, 9vw, 58px)/.95 var(--font-display); text-transform: uppercase; letter-spacing: .01em; text-wrap: balance; }
+.role { font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); }
+.role.admin { background: var(--pitch); color: var(--on-pitch); border-color: var(--pitch); }
+.counters { display: flex; gap: 28px; flex-wrap: wrap; border-top: 3px solid var(--fg); padding-top: 12px; }
+.counters div { display: flex; flex-direction: column; }
+.counters b { font: 700 36px/1 var(--font-display); font-variant-numeric: tabular-nums; }
+.counters span { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+
+.tabs { display: flex; gap: 4px; overflow-x: auto; border-bottom: 1px solid var(--line); }
+.tabs button { flex: none; background: none; border: 0; padding: 10px 14px; font: 600 14px var(--font-body); color: var(--muted); cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -1px; }
+.tabs button[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--pitch); }
+
+.state { border: 1px dashed var(--line); border-radius: 10px; padding: 24px 16px; text-align: center; color: var(--muted); }
+.state.err { color: var(--loss); border-color: var(--loss); }
+.empty { border: 1px dashed var(--line); border-radius: 10px; padding: 24px 16px; color: var(--muted); text-align: center; display: flex; flex-direction: column; gap: 10px; align-items: center; }
+
+.tw { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+th, td { padding: 10px 8px; text-align: right; border-bottom: 1px solid var(--line); }
+th { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 600; white-space: nowrap; }
+th.nm, td.nm { text-align: left; width: 100%; }
+th.rk, td.rk { text-align: left; width: 28px; color: var(--muted); }
+.sortbtn { background: none; border: 0; padding: 0; font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; cursor: pointer; }
+.sortbtn[aria-pressed="true"] { color: var(--fg); }
+.sortbtn[aria-pressed="true"]::after { content: attr(data-arrow); margin-left: 3px; }
+.long { display: none; } .short { display: inline; }
+@media (min-width: 560px) { .long { display: inline; } .short { display: none; } }
+.rowbtn { background: none; border: 0; padding: 4px 0; font: 600 16px var(--font-body); color: var(--fg); cursor: pointer; text-align: left; }
+td.w { font-weight: 700; color: var(--win); }
+td.l { color: var(--loss); }
+tr.prof td { background: var(--surface); text-align: left; }
+.legend { margin: 8px 0 0; font-size: 12px; color: var(--muted); }
+
+.chip { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 4px; font: 700 12px var(--font-body); }
+.chip.w { background: var(--win); color: var(--on-pitch); }
+.chip.d { background: var(--draw); color: var(--on-pitch); }
+.chip.l { background: var(--loss); color: var(--on-pitch); }
+.profile { display: flex; flex-direction: column; gap: 10px; padding: 4px 0; }
+.pf-top { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pf-top h3 { margin: 0; font: 700 24px/1 var(--font-display); text-transform: uppercase; letter-spacing: .03em; }
+.formrow { display: flex; align-items: center; gap: 4px; }
+.formrow .lbl { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-right: 6px; }
+.plist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.plist li { display: flex; align-items: center; gap: 10px; font-size: 14px; }
+.plist .d { color: var(--muted); min-width: 52px; }
+.plist .t { font-weight: 700; min-width: 44px; }
+.plist .t.a { color: var(--a); } .plist .t.b { color: var(--b); }
+.plist .sc { font: 700 18px var(--font-display); min-width: 40px; }
+
+#matchList { display: flex; flex-direction: column; gap: 12px; }
+.match { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+.mh { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+.md { font-size: 13px; color: var(--muted); font-weight: 600; }
+.acts { display: flex; gap: 6px; }
+.scoreline { display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; align-items: start; }
+.tm { min-width: 0; }
+.tm.a { text-align: right; }
+.tn { display: inline-block; font: 700 18px/1 var(--font-display); text-transform: uppercase; letter-spacing: .04em; padding: 4px 8px; border-radius: 4px; }
+.tm.a .tn { background: var(--a); color: var(--on-a); }
+.tm.b .tn { background: var(--b); color: var(--on-b); }
+.nl { display: block; margin-top: 6px; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+.tm.win .nl { color: var(--fg); font-weight: 600; }
+.res { font: 800 40px/1 var(--font-display); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.mnote { margin: 10px 0 0; font-size: 13px; color: var(--muted); }
+
+.btn { font: 600 14px var(--font-body); padding: 9px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); cursor: pointer; }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.btn.primary { background: var(--pitch); color: var(--on-pitch); border-color: var(--pitch); }
+.btn.sm { padding: 5px 10px; font-size: 13px; }
+.btn.danger { color: var(--loss); }
+input, textarea { font: inherit; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--fg); min-width: 0; width: 100%; }
+.panel { display: flex; flex-direction: column; gap: 16px; }
+.panel h2 { margin: 0; font: 700 26px/1 var(--font-display); text-transform: uppercase; letter-spacing: .03em; }
+.fgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+label.f { display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 600; color: var(--muted); }
+.picker { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.pick { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.pick:last-child { border-bottom: 0; }
+.pn { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.seg { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; flex: none; }
+.seg button { border: 0; background: none; min-width: 46px; padding: 8px 0; font: 700 14px var(--font-body); color: var(--muted); cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--fg); color: var(--bg); }
+.seg .ta[aria-pressed="true"] { background: var(--a); color: var(--on-a); }
+.seg .tb[aria-pressed="true"] { background: var(--b); color: var(--on-b); }
+.pickcount { font-size: 13px; color: var(--muted); font-weight: 600; }
+.addrow { display: flex; gap: 8px; }
+.addrow input { flex: 1; }
+.row-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.msg { font-size: 13px; font-weight: 600; }
+.msg.ok { color: var(--win); } .msg.bad { color: var(--loss); }
+.prow { display: flex; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.prow input { flex: 1; min-width: 140px; }
+.prow .cnt { font-size: 13px; color: var(--muted); min-width: 70px; }
+
+[hidden] { display: none !important; }
+html { color-scheme: light; }
+body { margin: 0; }
+button.role { font-family: inherit; cursor: pointer; background: none; }
+button.role.admin { background: var(--pitch); }
+.addrow { flex-wrap: wrap; }
+.addrow input { min-width: 150px; }
+</style>
+</head>
+<body>
+
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <p class="eyebrow">Naš mali fudbal</p>
+      <h1>Fudbalski termin</h1>
+    </div>
+    <button class="role" id="role" type="button">Admin prijava</button>
+  </header>
+
+  <div class="counters" id="counters">
+    <div><b>0</b><span>utakmica</span></div>
+    <div><b>0</b><span>igrača</span></div>
+    <div><b>0</b><span>golova</span></div>
+  </div>
+
+
+  <div class="panel" id="unlock" hidden>
+    <div class="addrow">
+      <input type="email" id="em" placeholder="Admin email" autocomplete="username" aria-label="Admin email">
+      <input type="password" id="pw" placeholder="Lozinka" autocomplete="current-password" aria-label="Lozinka">
+      <button class="btn primary" type="button" id="unlock-go">Prijavi se</button>
+    </div>
+    <span class="msg" id="unlock-msg" role="status"></span>
+  </div>
+
+  <div class="state" id="state">Učitavam termine…</div>
+
+  <div id="app" hidden>
+    <nav class="tabs" role="tablist" aria-label="Odeljci">
+      <button role="tab" data-tab="table" aria-selected="true">Tabela</button>
+      <button role="tab" data-tab="matches" aria-selected="false">Utakmice</button>
+      <button role="tab" data-tab="new" aria-selected="false" data-admin hidden>Nova utakmica</button>
+      <button role="tab" data-tab="players" aria-selected="false" data-admin hidden>Igrači</button>
+    </nav>
+
+    <section id="sec-table" style="margin-top:16px">
+      <div class="tw">
+        <table>
+          <thead>
+            <tr>
+              <th class="rk">#</th>
+              <th class="nm">Igrač</th>
+              <th><button class="sortbtn" data-sort="g" aria-pressed="false"><span class="long">Odigrano</span><span class="short">Odigr.</span></button></th>
+              <th><button class="sortbtn" data-sort="w" aria-pressed="true" data-arrow="↓"><span class="long">Pobede</span><span class="short">Pob.</span></button></th>
+              <th><button class="sortbtn" data-sort="d" aria-pressed="false"><span class="long">Nerešeno</span><span class="short">Ner.</span></button></th>
+              <th><button class="sortbtn" data-sort="l" aria-pressed="false"><span class="long">Porazi</span><span class="short">Por.</span></button></th>
+              <th><button class="sortbtn" data-sort="pct" aria-pressed="false"><span class="long">% pobeda</span><span class="short">%</span></button></th>
+            </tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+      <div id="tableEmpty"></div>
+      <p class="legend">Klik na ime otvara profil igrača. Forma: P pobeda, N nerešeno, I izgubljeno.</p>
+    </section>
+
+    <section id="sec-matches" style="margin-top:16px" hidden>
+      <div id="matchList"></div>
+      <div id="matchEmpty"></div>
+    </section>
+
+    <section id="sec-new" class="panel" style="margin-top:16px" hidden>
+      <h2 id="formTitle">Nova utakmica</h2>
+      <div class="fgrid">
+        <label class="f" for="f-date">Datum<input type="date" id="f-date"></label>
+        <label class="f" for="f-sa">Golovi, Tim A<input type="number" id="f-sa" min="0" max="99" inputmode="numeric"></label>
+        <label class="f" for="f-sb">Golovi, Tim B<input type="number" id="f-sb" min="0" max="99" inputmode="numeric"></label>
+      </div>
+      <div>
+        <div class="pickcount" id="pickcount" style="margin-bottom:6px">Tim A: 0 · Tim B: 0</div>
+        <div class="picker" id="picker"></div>
+      </div>
+      <div class="addrow">
+        <input type="text" id="q-name" placeholder="Novi igrač (ime)" maxlength="40" aria-label="Ime novog igrača">
+        <button class="btn" type="button" id="q-add">Dodaj igrača</button>
+      </div>
+      <label class="f" for="f-note">Napomena (nije obavezna)<input type="text" id="f-note" maxlength="140" placeholder="npr. teren na Zemunu, 20h"></label>
+      <div class="row-actions">
+        <button class="btn primary" type="button" id="f-save">Sačuvaj utakmicu</button>
+        <button class="btn" type="button" id="f-cancel" hidden>Odustani od izmene</button>
+        <span class="msg" id="f-msg" role="status"></span>
+      </div>
+    </section>
+
+    <section id="sec-players" class="panel" style="margin-top:16px" hidden>
+      <h2>Igrači</h2>
+      <div class="addrow">
+        <input type="text" id="p-name" placeholder="Ime igrača" maxlength="40" aria-label="Ime igrača">
+        <button class="btn primary" type="button" id="p-add">Dodaj</button>
+      </div>
+      <span class="msg" id="p-msg" role="status"></span>
+      <div id="playerList"></div>
+    </section>
+  </div>
+</div>
+
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+import { getFirestore, collection, doc, onSnapshot, addDoc, setDoc, updateDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+import { firebaseConfig, adminEmail } from "./firebase-config.js";
+
+(function () {
+  'use strict';
+  var $ = function (s) { return document.querySelector(s); };
+  var $$ = function (s) { return Array.prototype.slice.call(document.querySelectorAll(s)); };
+  var esc = function (s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  };
+
+  var db = null, isAdmin = false;
+  var players = [], matches = [], pmap = {};
+  var loaded = { p: false, m: false };
+  var sortKey = 'w', sortDir = -1, openId = null, tab = 'table';
+  var editing = null, assign = {}, confirmMatch = null, confirmPlayer = null;
+
+  function todayISO() {
+    var d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+  function fmtDate(iso, short) {
+    var p = (iso || '').split('-').map(Number);
+    if (p.length !== 3 || !p[0]) return iso || '';
+    var d = new Date(p[0], p[1] - 1, p[2]);
+    try {
+      return d.toLocaleDateString('sr-Latn-RS', short ? { day: 'numeric', month: 'numeric' } : { weekday: 'short', day: 'numeric', month: 'numeric', year: 'numeric' });
+    } catch (e) { return iso; }
+  }
+  function cmpDesc(a, b) {
+    if (a.date !== b.date) return a.date < b.date ? 1 : -1;
+    return (b.createdAt || 0) - (a.createdAt || 0);
+  }
+  function byName(a, b) { return String(a.name).localeCompare(String(b.name), 'sr-Latn'); }
+  function nameOf(id) { return pmap[id] ? pmap[id].name : '(uklonjen)'; }
+  function flash(el, text, kind) {
+    el.textContent = text;
+    el.className = 'msg ' + (kind || '');
+    clearTimeout(el._t);
+    if (text) el._t = setTimeout(function () { el.textContent = ''; }, 4500);
+  }
+  function showState(text, kind) {
+    var s = $('#state');
+    s.hidden = false;
+    s.className = 'state' + (kind === 'err' ? ' err' : '');
+    s.textContent = text;
+  }
+
+  /* ---------- statistika ---------- */
+  function stats() {
+    var s = {};
+    players.forEach(function (p) { s[p.id] = { id: p.id, name: p.name, g: 0, w: 0, d: 0, l: 0, form: [] }; });
+    matches.slice().sort(function (a, b) { return -cmpDesc(a, b); }).forEach(function (m) {
+      [['teamA', +m.scoreA, +m.scoreB], ['teamB', +m.scoreB, +m.scoreA]].forEach(function (t) {
+        (m[t[0]] || []).forEach(function (pid) {
+          var r = s[pid]; if (!r) return;
+          var res = t[1] > t[2] ? 'w' : (t[1] < t[2] ? 'l' : 'd');
+          r.g++; r[res]++; r.form.push({ res: res, m: m });
+        });
+      });
+    });
+    return Object.keys(s).map(function (k) { return s[k]; });
+  }
+  function chip(res) {
+    var label = { w: 'P', d: 'N', l: 'I' }[res];
+    var title = { w: 'pobeda', d: 'nerešeno', l: 'izgubljeno' }[res];
+    return '<span class="chip ' + res + '" title="' + title + '">' + label + '</span>';
+  }
+
+  /* ---------- render ---------- */
+  function renderCounters() {
+    var goals = matches.reduce(function (a, m) { return a + (+m.scoreA || 0) + (+m.scoreB || 0); }, 0);
+    $('#counters').innerHTML =
+      '<div><b>' + matches.length + '</b><span>utakmica</span></div>' +
+      '<div><b>' + players.length + '</b><span>igrača</span></div>' +
+      '<div><b>' + goals + '</b><span>golova</span></div>';
+  }
+
+  function profileHTML(r) {
+    if (!r.g) return '<div class="profile"><div class="pf-top"><h3>' + esc(r.name) + '</h3></div><span class="legend">Još nije odigrao nijednu utakmicu.</span></div>';
+    var chips = r.form.slice(-5).map(function (f) { return chip(f.res); }).join('');
+    var list = r.form.slice().reverse().slice(0, 6).map(function (f) {
+      var m = f.m, isA = (m.teamA || []).indexOf(r.id) >= 0;
+      var my = isA ? m.scoreA : m.scoreB, th = isA ? m.scoreB : m.scoreA;
+      return '<li><span class="d">' + esc(fmtDate(m.date, true)) + '</span><span class="t ' + (isA ? 'a' : 'b') + '">Tim ' + (isA ? 'A' : 'B') + '</span><span class="sc">' + my + ':' + th + '</span>' + chip(f.res) + '</li>';
+    }).join('');
+    return '<div class="profile"><div class="pf-top"><h3>' + esc(r.name) + '</h3><div class="formrow"><span class="lbl">Forma</span>' + chips + '</div></div><ul class="plist">' + list + '</ul></div>';
+  }
+
+  function renderTable() {
+    var rows = stats();
+    var pct = function (r) { return r.g ? r.w / r.g : -1; };
+    var val = function (r) { return sortKey === 'pct' ? pct(r) : r[sortKey]; };
+    rows.sort(function (x, y) {
+      var d = (val(x) - val(y)) * sortDir; if (d) return d;
+      return (y.w - x.w) || (pct(y) - pct(x)) || byName(x, y);
+    });
+    $('#tbody').innerHTML = rows.map(function (r, i) {
+      var open = openId === r.id;
+      var h = '<tr><td class="rk">' + (i + 1) + '</td><td class="nm"><button class="rowbtn" data-pid="' + esc(r.id) + '" aria-expanded="' + open + '">' + esc(r.name) + '</button></td><td>' + r.g + '</td><td class="w">' + r.w + '</td><td>' + r.d + '</td><td class="l">' + r.l + '</td><td>' + (r.g ? Math.round(100 * r.w / r.g) + '%' : '—') + '</td></tr>';
+      if (open) h += '<tr class="prof"><td colspan="7">' + profileHTML(r) + '</td></tr>';
+      return h;
+    }).join('');
+    $$('.sortbtn').forEach(function (b) {
+      var on = b.getAttribute('data-sort') === sortKey;
+      b.setAttribute('aria-pressed', on);
+      b.setAttribute('data-arrow', on ? (sortDir < 0 ? '↓' : '↑') : '');
+    });
+    var e = $('#tableEmpty');
+    if (!players.length) {
+      e.innerHTML = '<div class="empty">' + (isAdmin
+        ? 'Još nema igrača. Dodaj ih pa unesi prvu utakmicu.<button class="btn primary" type="button" data-go="players">Dodaj igrače</button>'
+        : 'Admin još nije uneo igrače.') + '</div>';
+    } else e.innerHTML = '';
+  }
+
+  function teamHTML(side, ids, win) {
+    var names = (ids || []).map(nameOf).sort(function (a, b) { return a.localeCompare(b, 'sr-Latn'); }).join(', ') || '—';
+    return '<div class="tm ' + side + (win ? ' win' : '') + '"><span class="tn">Tim ' + side.toUpperCase() + '</span><span class="nl">' + esc(names) + '</span></div>';
+  }
+  function renderMatches() {
+    var list = matches.slice().sort(cmpDesc);
+    $('#matchList').innerHTML = list.map(function (m) {
+      var a = +m.scoreA, b = +m.scoreB;
+      var acts = '';
+      if (isAdmin) {
+        acts = confirmMatch === m.id
+          ? '<div class="acts"><button class="btn sm danger" data-act="del-yes" data-id="' + esc(m.id) + '">Da, obriši</button><button class="btn sm" data-act="del-no">Ne</button></div>'
+          : '<div class="acts"><button class="btn sm" data-act="edit" data-id="' + esc(m.id) + '">Izmeni</button><button class="btn sm danger" data-act="del" data-id="' + esc(m.id) + '">Obriši</button></div>';
+      }
+      return '<article class="match"><div class="mh"><span class="md">' + esc(fmtDate(m.date)) + '</span>' + acts + '</div>' +
+        '<div class="scoreline">' + teamHTML('a', m.teamA, a > b) + '<div class="res">' + a + ' : ' + b + '</div>' + teamHTML('b', m.teamB, b > a) + '</div>' +
+        (m.note ? '<p class="mnote">' + esc(m.note) + '</p>' : '') + '</article>';
+    }).join('');
+    $('#matchEmpty').innerHTML = list.length ? '' : '<div class="empty">Još nema upisanih utakmica.' + (isAdmin ? '<button class="btn primary" type="button" data-go="new">Unesi utakmicu</button>' : '') + '</div>';
+  }
+
+  function renderPicker() {
+    var list = players.slice().sort(byName);
+    $('#picker').innerHTML = list.length ? list.map(function (p) {
+      var t = assign[p.id] || '';
+      return '<div class="pick" data-pid="' + esc(p.id) + '"><span class="pn">' + esc(p.name) + '</span>' +
+        '<div class="seg" role="group" aria-label="Tim za ' + esc(p.name) + '">' +
+        '<button type="button" data-t="" aria-pressed="' + (t === '') + '">—</button>' +
+        '<button type="button" class="ta" data-t="A" aria-pressed="' + (t === 'A') + '">A</button>' +
+        '<button type="button" class="tb" data-t="B" aria-pressed="' + (t === 'B') + '">B</button></div></div>';
+    }).join('') : '<div class="pick"><span class="pn" style="color:var(--muted)">Nema igrača. Dodaj ih ispod.</span></div>';
+    updatePickCount();
+  }
+  function updatePickCount() {
+    var a = 0, b = 0;
+    Object.keys(assign).forEach(function (k) { if (assign[k] === 'A') a++; else if (assign[k] === 'B') b++; });
+    $('#pickcount').textContent = 'Tim A: ' + a + ' · Tim B: ' + b;
+  }
+
+  function renderPlayers() {
+    var games = {};
+    matches.forEach(function (m) { (m.teamA || []).concat(m.teamB || []).forEach(function (id) { games[id] = (games[id] || 0) + 1; }); });
+    var list = players.slice().sort(byName);
+    $('#playerList').innerHTML = list.length ? list.map(function (p) {
+      var g = games[p.id] || 0;
+      var del = confirmPlayer === p.id
+        ? '<button class="btn sm danger" data-act="pdel-yes" data-id="' + esc(p.id) + '">Da, ukloni</button><button class="btn sm" data-act="pdel-no">Ne</button>'
+        : '<button class="btn sm danger" data-act="pdel" data-id="' + esc(p.id) + '"' + (g ? ' disabled title="Igrač ima upisane utakmice"' : '') + '>Ukloni</button>';
+      return '<div class="prow"><input type="text" value="' + esc(p.name) + '" maxlength="40" data-pid="' + esc(p.id) + '" aria-label="Ime igrača"><span class="cnt">Utakmica: ' + g + '</span>' + del + '</div>';
+    }).join('') : '<div class="empty">Još nema igrača.</div>';
+  }
+
+  function renderAll() {
+    renderCounters(); renderTable(); renderMatches(); renderPicker(); renderPlayers();
+  }
+
+  /* ---------- tabs ---------- */
+  function setTab(t) {
+    if ((t === 'new' || t === 'players') && !isAdmin) t = 'table';
+    tab = t;
+    $$('.tabs button').forEach(function (b) { b.setAttribute('aria-selected', b.getAttribute('data-tab') === t); });
+    ['table', 'matches', 'new', 'players'].forEach(function (k) { $('#sec-' + k).hidden = k !== t; });
+  }
+
+  
+  /* ---------- Firebase ---------- */
+  var fdb = null, auth = null;
+
+  function errText(e) {
+    var c = e && e.code;
+    if (c === 'auth/invalid-credential' || c === 'auth/wrong-password' || c === 'auth/user-not-found' || c === 'auth/invalid-email') return 'Pogrešan email ili lozinka.';
+    if (c === 'auth/too-many-requests') return 'Previše pokušaja. Probaj malo kasnije.';
+    if (c === 'not-admin') return 'Ovaj nalog nije admin.';
+    if (c === 'permission-denied') return 'Nemaš pravo upisa. Prijavi se kao admin.';
+    if (c === 'dup') return 'Igrač sa tim imenom već postoji.';
+    if (c === 'inuse') return 'Igrač ima upisane utakmice i ne može da se ukloni.';
+    return 'Nije uspelo. Pokušaj ponovo.';
+  }
+  function toast(text) {
+    showState(text, 'err');
+    setTimeout(function () { if (loaded.p && loaded.m) $('#state').hidden = true; }, 4000);
+  }
+  function onData() {
+    pmap = {}; players.forEach(function (p) { pmap[p.id] = p; });
+    if (loaded.p && loaded.m) { $('#state').hidden = true; $('#app').hidden = false; }
+    if (loaded.p || loaded.m) renderAll();
+  }
+
+  /* ---------- admin ---------- */
+  function setAdminUI() {
+    var r = $('#role');
+    r.textContent = isAdmin ? 'Admin · odjava' : 'Admin prijava';
+    r.className = 'role' + (isAdmin ? ' admin' : '');
+    $$('[data-admin]').forEach(function (el) { el.hidden = !isAdmin; });
+    if (!isAdmin && (tab === 'new' || tab === 'players')) setTab('table');
+  }
+  function isAdminUser(u) {
+    return !!(u && u.email && adminEmail && u.email.toLowerCase() === String(adminEmail).toLowerCase());
+  }
+  async function login() {
+    var em = $('#em').value.trim(), pw = $('#pw').value;
+    if (!em || !pw) return;
+    try {
+      await signInWithEmailAndPassword(auth, em, pw);
+      if (!isAdminUser(auth.currentUser)) { await signOut(auth); throw { code: 'not-admin' }; }
+      $('#pw').value = ''; $('#unlock').hidden = true; flash($('#unlock-msg'), '', '');
+    } catch (e) { flash($('#unlock-msg'), errText(e), 'bad'); }
+  }
+
+  /* ---------- upis ---------- */
+  async function addPlayer(name, msgEl) {
+    name = name.trim();
+    if (!name) { flash(msgEl, 'Upiši ime igrača.', 'bad'); return false; }
+    var dup = players.some(function (p) { return String(p.name).toLowerCase() === name.toLowerCase(); });
+    if (dup) { flash(msgEl, errText({ code: 'dup' }), 'bad'); return false; }
+    try {
+      await addDoc(collection(fdb, 'players'), { name: name, createdAt: Date.now() });
+      flash(msgEl, 'Dodat: ' + name, 'ok'); return true;
+    } catch (e) { flash(msgEl, errText(e), 'bad'); return false; }
+  }
+
+  function resetForm() {
+    editing = null; assign = {};
+    $('#f-date').value = todayISO(); $('#f-sa').value = ''; $('#f-sb').value = ''; $('#f-note').value = '';
+    $('#formTitle').textContent = 'Nova utakmica';
+    $('#f-cancel').hidden = true;
+    renderPicker();
+  }
+  function startEdit(id) {
+    var m = matches.find(function (x) { return x.id === id; });
+    if (!m) return;
+    editing = id; assign = {};
+    (m.teamA || []).forEach(function (p) { assign[p] = 'A'; });
+    (m.teamB || []).forEach(function (p) { assign[p] = 'B'; });
+    $('#f-date').value = m.date || todayISO();
+    $('#f-sa').value = m.scoreA; $('#f-sb').value = m.scoreB; $('#f-note').value = m.note || '';
+    $('#formTitle').textContent = 'Izmena utakmice';
+    $('#f-cancel').hidden = false;
+    renderPicker(); setTab('new');
+  }
+  async function saveMatch() {
+    var msg = $('#f-msg');
+    var date = $('#f-date').value, sa = $('#f-sa').value, sb = $('#f-sb').value, note = $('#f-note').value.trim();
+    var A = Object.keys(assign).filter(function (k) { return assign[k] === 'A' && pmap[k]; });
+    var B = Object.keys(assign).filter(function (k) { return assign[k] === 'B' && pmap[k]; });
+    if (!date) return flash(msg, 'Izaberi datum.', 'bad');
+    if (!A.length || !B.length) return flash(msg, 'Svaki tim mora da ima bar jednog igrača.', 'bad');
+    if (sa === '' || sb === '' || +sa < 0 || +sb < 0) return flash(msg, 'Upiši rezultat oba tima.', 'bad');
+    var data = { date: date, teamA: A, teamB: B, scoreA: Math.round(+sa), scoreB: Math.round(+sb), note: note };
+    var btn = $('#f-save'); btn.disabled = true;
+    try {
+      if (editing) {
+        var old = matches.find(function (x) { return x.id === editing; });
+        data.createdAt = (old && old.createdAt) || Date.now();
+        await setDoc(doc(fdb, 'matches', editing), data);
+      } else {
+        data.createdAt = Date.now();
+        await addDoc(collection(fdb, 'matches'), data);
+      }
+      resetForm(); flash(msg, 'Sačuvano.', 'ok'); setTab('matches');
+    } catch (e) { flash(msg, errText(e), 'bad'); }
+    btn.disabled = false;
+  }
+  function playerInUse(id) {
+    return matches.some(function (m) { return (m.teamA || []).indexOf(id) >= 0 || (m.teamB || []).indexOf(id) >= 0; });
+  }
+
+  /* ---------- događaji ---------- */
+  document.addEventListener('click', async function (ev) {
+    var t = ev.target, el;
+    if ((el = t.closest('.tabs button'))) { setTab(el.getAttribute('data-tab')); return; }
+    if ((el = t.closest('[data-go]'))) { setTab(el.getAttribute('data-go')); return; }
+    if ((el = t.closest('.sortbtn'))) {
+      var k = el.getAttribute('data-sort');
+      if (sortKey === k) sortDir = -sortDir; else { sortKey = k; sortDir = -1; }
+      renderTable(); return;
+    }
+    if ((el = t.closest('.rowbtn'))) {
+      var id = el.getAttribute('data-pid'); openId = openId === id ? null : id; renderTable(); return;
+    }
+    if ((el = t.closest('.seg button'))) {
+      var pid = el.closest('.pick').getAttribute('data-pid'), v = el.getAttribute('data-t');
+      if (v) assign[pid] = v; else delete assign[pid];
+      renderPicker(); return;
+    }
+    if ((el = t.closest('[data-act]'))) {
+      var act = el.getAttribute('data-act'), rid = el.getAttribute('data-id');
+      if (act === 'edit') startEdit(rid);
+      else if (act === 'del') { confirmMatch = rid; renderMatches(); }
+      else if (act === 'del-no') { confirmMatch = null; renderMatches(); }
+      else if (act === 'del-yes') {
+        try { await deleteDoc(doc(fdb, 'matches', rid)); } catch (e) { toast(errText(e)); }
+        confirmMatch = null; renderMatches();
+      }
+      else if (act === 'pdel') { confirmPlayer = rid; renderPlayers(); }
+      else if (act === 'pdel-no') { confirmPlayer = null; renderPlayers(); }
+      else if (act === 'pdel-yes') {
+        try {
+          if (playerInUse(rid)) throw { code: 'inuse' };
+          await deleteDoc(doc(fdb, 'players', rid));
+        } catch (e) { flash($('#p-msg'), errText(e), 'bad'); }
+        confirmPlayer = null; renderPlayers();
+      }
+    }
+  });
+  $('#role').addEventListener('click', function () {
+    if (isAdmin) { signOut(auth); return; }
+    var u = $('#unlock'); u.hidden = !u.hidden;
+    if (!u.hidden) $('#em').focus();
+  });
+  $('#unlock-go').addEventListener('click', login);
+  $('#pw').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); login(); } });
+  $('#f-save').addEventListener('click', saveMatch);
+  $('#f-cancel').addEventListener('click', function () { resetForm(); flash($('#f-msg'), '', ''); });
+  $('#q-add').addEventListener('click', async function () {
+    var inp = $('#q-name');
+    if (await addPlayer(inp.value, $('#f-msg'))) inp.value = '';
+  });
+  $('#q-name').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); $('#q-add').click(); } });
+  $('#p-add').addEventListener('click', async function () {
+    var inp = $('#p-name');
+    if (await addPlayer(inp.value, $('#p-msg'))) inp.value = '';
+  });
+  $('#p-name').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); $('#p-add').click(); } });
+  $('#playerList').addEventListener('change', async function (e) {
+    var inp = e.target.closest('input[data-pid]'); if (!inp) return;
+    var name = inp.value.trim(), id = inp.getAttribute('data-pid');
+    if (!name) { renderPlayers(); return; }
+    var dup = players.some(function (p) { return p.id !== id && String(p.name).toLowerCase() === name.toLowerCase(); });
+    if (dup) { flash($('#p-msg'), errText({ code: 'dup' }), 'bad'); renderPlayers(); return; }
+    try { await updateDoc(doc(fdb, 'players', id), { name: name }); flash($('#p-msg'), 'Ime promenjeno.', 'ok'); }
+    catch (err) { flash($('#p-msg'), errText(err), 'bad'); renderPlayers(); }
+  });
+
+  /* ---------- pokretanje ---------- */
+  function init() {
+    $('#f-date').value = todayISO();
+    setAdminUI();
+    if (!firebaseConfig || !firebaseConfig.apiKey || String(firebaseConfig.apiKey).indexOf('PASTE') === 0) {
+      showState('Firebase još nije podešen. Otvori fajl firebase-config.js i upiši svoje podatke (vidi uputstvo).', 'err');
+      return;
+    }
+    var app = initializeApp(firebaseConfig);
+    fdb = getFirestore(app); auth = getAuth(app);
+    onAuthStateChanged(auth, function (u) {
+      isAdmin = isAdminUser(u);
+      setAdminUI();
+      if (loaded.p && loaded.m) renderAll();
+    });
+    var timer = setTimeout(function () {
+      if (!(loaded.p && loaded.m)) showState('Podaci još nisu stigli. Proveri internet vezu, stranica će se popuniti čim stignu.', '');
+    }, 10000);
+    var onErr = function (e) {
+      clearTimeout(timer);
+      showState('Ne mogu da pročitam podatke (' + ((e && e.code) || 'greška') + '). Proveri Firestore pravila.', 'err');
+    };
+    onSnapshot(collection(fdb, 'players'), function (snap) {
+      players = snap.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); });
+      loaded.p = true; clearTimeout(timer); onData();
+    }, onErr);
+    onSnapshot(collection(fdb, 'matches'), function (snap) {
+      matches = snap.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); });
+      loaded.m = true; clearTimeout(timer); onData();
+    }, onErr);
+  }
+  init();
+})();
+</script>
+</body>
+</html>
