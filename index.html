@@ -154,6 +154,24 @@ button.role { font-family: inherit; cursor: pointer; background: none; }
 button.role.admin { background: var(--pitch); }
 .addrow { flex-wrap: wrap; }
 .addrow input { min-width: 150px; }
+.roast { margin-left: 6px; cursor: help; }
+.gen-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
+.gchip { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-width: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--fg); font: 600 14px var(--font-body); text-align: left; cursor: pointer; }
+.gchip .gn { overflow-wrap: anywhere; }
+.gchip .gs { color: var(--muted); font-variant-numeric: tabular-nums; }
+.gchip[aria-pressed="true"] { background: var(--pitch); border-color: var(--pitch); color: var(--on-pitch); }
+.gchip[aria-pressed="true"] .gs { color: var(--on-pitch); }
+.teams { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.tcard { min-width: 0; padding: 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+.tch { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.tcard.a .tn { background: var(--a); color: var(--on-a); }
+.tcard.b .tn { background: var(--b); color: var(--on-b); }
+.tmeta { font-size: 12px; font-weight: 600; color: var(--muted); }
+.tl { list-style: none; margin: 0; padding: 0; }
+.tl li { display: flex; justify-content: space-between; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line); }
+.tl li:last-child { border-bottom: 0; }
+.tl .gs { color: var(--muted); font-weight: 600; font-variant-numeric: tabular-nums; }
+.balance { margin: 0; font-size: 14px; font-weight: 600; }
 </style>
 </head>
 <body>
@@ -190,6 +208,7 @@ button.role.admin { background: var(--pitch); }
     <nav class="tabs" role="tablist" aria-label="Odeljci">
       <button role="tab" data-tab="table" aria-selected="true">Tabela</button>
       <button role="tab" data-tab="matches" aria-selected="false">Utakmice</button>
+      <button role="tab" data-tab="gen" aria-selected="false">Generator</button>
       <button role="tab" data-tab="new" aria-selected="false" data-admin hidden>Nova utakmica</button>
       <button role="tab" data-tab="players" aria-selected="false" data-admin hidden>Igrači</button>
     </nav>
@@ -213,11 +232,28 @@ button.role.admin { background: var(--pitch); }
       </div>
       <div id="tableEmpty"></div>
       <p class="legend">Klik na ime otvara profil igrača. Forma: P pobeda, N nerešeno, I izgubljeno.</p>
+      <p class="legend">🐷 dobija pet najlošijih po % pobeda, među igračima koji su odigrali bar 35% svih utakmica.</p>
     </section>
 
     <section id="sec-matches" style="margin-top:16px" hidden>
       <div id="matchList"></div>
       <div id="matchEmpty"></div>
+    </section>
+
+    <section id="sec-gen" class="panel" style="margin-top:16px" hidden>
+      <h2>Generator timova</h2>
+      <p class="legend" style="margin:0">Izaberi ko igra danas. Timovi se prave tako da im snaga bude što bliža. Skor igrača (0-100) računa se iz pobeda, nerešenih i poraza, a igrači sa malo utakmica se privlače ka proseku (50). Snaga tima je zbir (skor − 50) njegovih igrača, pa tim sa jednim igračem više ne dobija prednost.</p>
+      <div class="row-actions">
+        <button class="btn" type="button" id="g-all">Izaberi sve</button>
+        <button class="btn" type="button" id="g-none">Poništi izbor</button>
+        <span class="pickcount" id="g-count">Izabrano: 0</span>
+      </div>
+      <div class="gen-list" id="g-list"></div>
+      <div class="row-actions">
+        <button class="btn primary" type="button" id="g-make">Napravi timove</button>
+        <span class="msg" id="g-msg" role="status"></span>
+      </div>
+      <div id="g-out"></div>
     </section>
 
     <section id="sec-new" class="panel" style="margin-top:16px" hidden>
@@ -277,6 +313,7 @@ import { firebaseConfig, adminEmail } from "./firebase-config.js";
   var loaded = { p: false, m: false };
   var sortKey = 'w', sortDir = -1, openId = null, tab = 'table';
   var editing = null, assign = {}, confirmMatch = null, confirmPlayer = null;
+  var genSel = {}, genRes = null;
 
   function todayISO() {
     var d = new Date();
@@ -330,6 +367,57 @@ import { firebaseConfig, adminEmail } from "./firebase-config.js";
     return '<span class="chip ' + res + '" title="' + title + '">' + label + '</span>';
   }
 
+  /* ---------- skor, pečenje i podela timova ---------- */
+  var PRIOR = 4, ROAST_PCT = 35, ROAST_N = 5, TOL = 4, MAX_GEN = 24;
+  var ROAST_HTML = '<span class="roast" role="img" aria-label="Svinja" title="Pečenje: među petoricu najlošijih po % pobeda">🐷</span>';
+
+  /* Skor igrača: pobeda = 1, nerešeno = 0,5, poraz = 0, uz PRIOR "izmišljenih" utakmica sa 0,5 da jedna pobeda ne napravi zvezdu. */
+  function rate(r) { return (r.w + 0.5 * r.d + PRIOR * 0.5) / (r.g + PRIOR); }
+  function scoreOf(r) { return Math.round(rate(r) * 100); }
+
+  /* Pet najlošijih po % pobeda među igračima sa bar 35% odigranih utakmica. Ako ih je prihvatljivih pet ili manje, niko ne dobija oznaku. */
+  function roastSet(rows) {
+    var out = {}, total = matches.length;
+    if (!total) return out;
+    var el = rows.filter(function (r) { return r.g * 100 >= total * ROAST_PCT; });
+    if (el.length <= ROAST_N) return out;
+    el.sort(function (a, b) {
+      return (a.w / a.g - b.w / b.g) || (b.l - a.l) || (a.w - b.w) || byName(a, b);
+    });
+    el.slice(0, ROAST_N).forEach(function (r) { out[r.id] = true; });
+    return out;
+  }
+
+  /* Podela na dva tima (veličine n/2 i n-n/2) sa najbližim zbirom vrednosti. Prolazi kroz sve podele (n do 24) i
+     nasumično bira jednu čiji je jaz najviše TOL iznad najboljeg, pa "Promešaj" daje različite, a podjednako fer timove. */
+  function splitTeams(vals) {
+    var n = vals.length, k = n >> 1, even = n % 2 === 0;
+    var h = Math.min(n, 12), hb = n - h;
+    var lo = new Float64Array(1 << h), hi = new Float64Array(1 << hb), m;
+    for (m = 1; m < lo.length; m++) lo[m] = lo[m & (m - 1)] + vals[31 - Math.clz32(m & -m)];
+    for (m = 1; m < hi.length; m++) hi[m] = hi[m & (m - 1)] + vals[h + 31 - Math.clz32(m & -m)];
+    var lowMask = (1 << h) - 1, total = lo[lowMask] + hi[(1 << hb) - 1];
+    function gap(mask) { return Math.abs(2 * (lo[mask & lowMask] + hi[mask >>> h]) - total); }
+    function each(fn) {
+      var mask = (1 << k) - 1, limit = 1 << n;
+      while (mask < limit) {
+        if (!even || (mask & 1)) fn(mask);
+        var c = mask & -mask, r = mask + c;
+        mask = (((r ^ mask) >>> 2) / c) | r;
+      }
+    }
+    var best = Infinity;
+    each(function (mask) { var g = gap(mask); if (g < best) best = g; });
+    var pick = 0, seen = 0;
+    each(function (mask) {
+      if (gap(mask) <= best + TOL) { seen++; if (Math.random() * seen < 1) pick = mask; }
+    });
+    var A = [], B = [];
+    for (var i = 0; i < n; i++) ((pick >>> i) & 1 ? A : B).push(i);
+    if (Math.random() < 0.5) { var t = A; A = B; B = t; }
+    return { A: A, B: B };
+  }
+
   /* ---------- render ---------- */
   function renderCounters() {
     var goals = matches.reduce(function (a, m) { return a + (+m.scoreA || 0) + (+m.scoreB || 0); }, 0);
@@ -339,7 +427,7 @@ import { firebaseConfig, adminEmail } from "./firebase-config.js";
       '<div><b>' + goals + '</b><span>golova</span></div>';
   }
 
-  function profileHTML(r) {
+  function profileHTML(r, roasted) {
     if (!r.g) return '<div class="profile"><div class="pf-top"><h3>' + esc(r.name) + '</h3></div><span class="legend">Još nije odigrao nijednu utakmicu.</span></div>';
     var chips = r.form.slice(-5).map(function (f) { return chip(f.res); }).join('');
     var list = r.form.slice().reverse().slice(0, 6).map(function (f) {
@@ -347,11 +435,12 @@ import { firebaseConfig, adminEmail } from "./firebase-config.js";
       var my = isA ? m.scoreA : m.scoreB, th = isA ? m.scoreB : m.scoreA;
       return '<li><span class="d">' + esc(fmtDate(m.date, true)) + '</span><span class="t ' + (isA ? 'a' : 'b') + '">Tim ' + (isA ? 'A' : 'B') + '</span><span class="sc">' + my + ':' + th + '</span>' + chip(f.res) + '</li>';
     }).join('');
-    return '<div class="profile"><div class="pf-top"><h3>' + esc(r.name) + '</h3><div class="formrow"><span class="lbl">Forma</span>' + chips + '</div></div><ul class="plist">' + list + '</ul></div>';
+    return '<div class="profile"><div class="pf-top"><h3>' + esc(r.name) + (roasted ? ' 🐷' : '') + '</h3><div class="formrow"><span class="lbl">Forma</span>' + chips + '</div></div><ul class="plist">' + list + '</ul></div>';
   }
 
   function renderTable() {
     var rows = stats();
+    var roast = roastSet(rows);
     var pct = function (r) { return r.g ? r.w / r.g : -1; };
     var val = function (r) { return sortKey === 'pct' ? pct(r) : r[sortKey]; };
     rows.sort(function (x, y) {
@@ -360,8 +449,8 @@ import { firebaseConfig, adminEmail } from "./firebase-config.js";
     });
     $('#tbody').innerHTML = rows.map(function (r, i) {
       var open = openId === r.id;
-      var h = '<tr><td class="rk">' + (i + 1) + '</td><td class="nm"><button class="rowbtn" data-pid="' + esc(r.id) + '" aria-expanded="' + open + '">' + esc(r.name) + '</button></td><td>' + r.g + '</td><td class="w">' + r.w + '</td><td>' + r.d + '</td><td class="l">' + r.l + '</td><td>' + (r.g ? Math.round(100 * r.w / r.g) + '%' : '—') + '</td></tr>';
-      if (open) h += '<tr class="prof"><td colspan="7">' + profileHTML(r) + '</td></tr>';
+      var h = '<tr><td class="rk">' + (i + 1) + '</td><td class="nm"><button class="rowbtn" data-pid="' + esc(r.id) + '" aria-expanded="' + open + '">' + esc(r.name) + '</button>' + (roast[r.id] ? ROAST_HTML : '') + '</td><td>' + r.g + '</td><td class="w">' + r.w + '</td><td>' + r.d + '</td><td class="l">' + r.l + '</td><td>' + (r.g ? Math.round(100 * r.w / r.g) + '%' : '—') + '</td></tr>';
+      if (open) h += '<tr class="prof"><td colspan="7">' + profileHTML(r, !!roast[r.id]) + '</td></tr>';
       return h;
     }).join('');
     $$('.sortbtn').forEach(function (b) {
@@ -430,7 +519,7 @@ import { firebaseConfig, adminEmail } from "./firebase-config.js";
   }
 
   function renderAll() {
-    renderCounters(); renderTable(); renderMatches(); renderPicker(); renderPlayers();
+    renderCounters(); renderTable(); renderMatches(); renderGenerator(); renderPicker(); renderPlayers();
   }
 
   /* ---------- tabs ---------- */
@@ -438,7 +527,7 @@ import { firebaseConfig, adminEmail } from "./firebase-config.js";
     if ((t === 'new' || t === 'players') && !isAdmin) t = 'table';
     tab = t;
     $$('.tabs button').forEach(function (b) { b.setAttribute('aria-selected', b.getAttribute('data-tab') === t); });
-    ['table', 'matches', 'new', 'players'].forEach(function (k) { $('#sec-' + k).hidden = k !== t; });
+    ['table', 'matches', 'gen', 'new', 'players'].forEach(function (k) { $('#sec-' + k).hidden = k !== t; });
   }
 
   
@@ -609,6 +698,78 @@ import { firebaseConfig, adminEmail } from "./firebase-config.js";
     if (dup) { flash($('#p-msg'), errText({ code: 'dup' }), 'bad'); renderPlayers(); return; }
     try { await updateDoc(doc(fdb, 'players', id), { name: name }); flash($('#p-msg'), 'Ime promenjeno.', 'ok'); }
     catch (err) { flash($('#p-msg'), errText(err), 'bad'); renderPlayers(); }
+  });
+
+  /* ---------- generator timova ---------- */
+  function renderGenerator() {
+    Object.keys(genSel).forEach(function (k) { if (!pmap[k]) delete genSel[k]; });
+    var rows = stats().sort(byName);
+    $('#g-list').innerHTML = rows.length ? rows.map(function (r) {
+      return '<button type="button" class="gchip" data-gid="' + esc(r.id) + '" aria-pressed="' + !!genSel[r.id] + '"><span class="gn">' + esc(r.name) + '</span><span class="gs" title="Skor">' + scoreOf(r) + '</span></button>';
+    }).join('') : '<div class="empty">Još nema igrača.</div>';
+    $('#g-count').textContent = 'Izabrano: ' + Object.keys(genSel).length;
+    if (genRes) {
+      genRes.A = genRes.A.filter(function (id) { return pmap[id]; });
+      genRes.B = genRes.B.filter(function (id) { return pmap[id]; });
+      if (!genRes.A.length || !genRes.B.length) genRes = null;
+    }
+    renderGenOut();
+  }
+
+  function renderGenOut() {
+    var out = $('#g-out');
+    $('#g-make').textContent = genRes ? 'Promešaj' : 'Napravi timove';
+    if (!genRes) { out.innerHTML = ''; return; }
+    var st = {};
+    stats().forEach(function (r) { st[r.id] = r; });
+    function card(side, ids) {
+      var list = ids.map(function (id) { return st[id]; }).sort(function (a, b) { return (rate(b) - rate(a)) || byName(a, b); });
+      var power = list.reduce(function (s, r) { return s + (rate(r) - 0.5) * 100; }, 0);
+      var avg = list.reduce(function (s, r) { return s + scoreOf(r); }, 0) / list.length;
+      var html = '<div class="tcard ' + side + '"><div class="tch"><span class="tn">Tim ' + side.toUpperCase() + '</span><span class="tmeta">' + list.length + ' igrača · prosek ' + Math.round(avg) + '</span></div><ul class="tl">' +
+        list.map(function (r) { return '<li><span>' + esc(r.name) + '</span><span class="gs">' + scoreOf(r) + '</span></li>'; }).join('') + '</ul></div>';
+      return { html: html, power: power };
+    }
+    var a = card('a', genRes.A), b = card('b', genRes.B);
+    var gap = Math.abs(a.power - b.power);
+    var line = gap < 1 ? 'Timovi su gotovo identične snage.' : 'Razlika u snazi timova: ' + gap.toFixed(1).replace('.', ',') + ' (manje je bolje).';
+    out.innerHTML = '<div class="teams">' + a.html + b.html + '</div>' +
+      '<p class="balance" style="margin-top:12px">' + line + '</p>' +
+      (isAdmin ? '<div class="row-actions" style="margin-top:12px"><button class="btn primary" type="button" id="g-use">Upiši u novu utakmicu</button></div>' : '');
+  }
+
+  function genMake() {
+    var msg = $('#g-msg');
+    var ids = Object.keys(genSel).filter(function (k) { return pmap[k]; });
+    if (ids.length < 2) { flash(msg, 'Izaberi bar dva igrača.', 'bad'); return; }
+    if (ids.length > MAX_GEN) { flash(msg, 'Izaberi najviše ' + MAX_GEN + ' igrača.', 'bad'); return; }
+    var st = {};
+    stats().forEach(function (r) { st[r.id] = r; });
+    var vals = ids.map(function (id) { return (rate(st[id]) - 0.5) * 100; });
+    var s = splitTeams(vals);
+    genRes = { A: s.A.map(function (i) { return ids[i]; }), B: s.B.map(function (i) { return ids[i]; }) };
+    flash(msg, '', '');
+    renderGenOut();
+  }
+
+  $('#g-list').addEventListener('click', function (e) {
+    var b = e.target.closest('.gchip'); if (!b) return;
+    var id = b.getAttribute('data-gid');
+    if (genSel[id]) delete genSel[id]; else genSel[id] = true;
+    genRes = null; renderGenerator();
+  });
+  $('#g-all').addEventListener('click', function () {
+    players.forEach(function (p) { genSel[p.id] = true; });
+    genRes = null; renderGenerator();
+  });
+  $('#g-none').addEventListener('click', function () { genSel = {}; genRes = null; renderGenerator(); });
+  $('#g-make').addEventListener('click', genMake);
+  $('#g-out').addEventListener('click', function (e) {
+    if (!e.target.closest('#g-use') || !isAdmin || !genRes) return;
+    resetForm();
+    genRes.A.forEach(function (id) { assign[id] = 'A'; });
+    genRes.B.forEach(function (id) { assign[id] = 'B'; });
+    renderPicker(); setTab('new');
   });
 
   /* ---------- pokretanje ---------- */
